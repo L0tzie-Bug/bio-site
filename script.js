@@ -70,6 +70,11 @@ let sampleRate = 44100;
 let bassEnvelope = null;
 let loudEnvelope = null;
 
+let liveContext = null;
+let liveAnalyser = null;
+let liveTime = null;
+let liveFreq = null;
+
 let smoothLoudness = 0;
 let bassAverage = 0;
 let beat = 0;
@@ -226,23 +231,55 @@ function buildEnvelopes(buffer) {
   loudEnvelope = loud;
 }
 
-async function analyseTrack() {
+async function decodeTrack(rate) {
+  const res = await fetch(audio.currentSrc || audio.src);
+  if (!res.ok) throw new Error(`Audio fetch failed: ${res.status}`);
+
+  const bytes = await res.arrayBuffer();
+  const OfflineCtx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  const decoder = new OfflineCtx(2, 1, rate);
+
+  return new Promise((resolve, reject) => {
+    const promise = decoder.decodeAudioData(bytes, resolve, reject);
+    if (promise && typeof promise.then === "function") promise.then(resolve, reject);
+  });
+}
+
+function startLiveFallback() {
+  if (liveAnalyser || !audio.captureStream) return;
+
   try {
-    const res = await fetch(audio.currentSrc || audio.src);
-    if (!res.ok) throw new Error(`Audio fetch failed: ${res.status}`);
-
-    const bytes = await res.arrayBuffer();
-    const OfflineCtx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
-    const decoder = new OfflineCtx(2, 1, 44100);
-    const buffer = await new Promise((resolve, reject) => {
-      const promise = decoder.decodeAudioData(bytes, resolve, reject);
-      if (promise && typeof promise.then === "function") promise.then(resolve, reject);
-    });
-
-    buildEnvelopes(buffer);
+    const stream = audio.captureStream();
+    liveContext = new (window.AudioContext || window.webkitAudioContext)();
+    const source = liveContext.createMediaStreamSource(stream);
+    liveAnalyser = liveContext.createAnalyser();
+    liveAnalyser.fftSize = 2048;
+    liveAnalyser.smoothingTimeConstant = 0.2;
+    liveTime = new Uint8Array(liveAnalyser.fftSize);
+    liveFreq = new Uint8Array(liveAnalyser.frequencyBinCount);
+    source.connect(liveAnalyser);
+    liveContext.resume().catch(() => {});
   } catch (err) {
-    console.warn("Could not analyse the track, the wave will stay flat.", err);
+    liveAnalyser = null;
+    console.warn("Live audio fallback could not start.", err);
   }
+}
+
+async function analyseTrack() {
+  const rates = [22050, 11025];
+
+  for (const rate of rates) {
+    try {
+      const buffer = await decodeTrack(rate);
+      buildEnvelopes(buffer);
+      return;
+    } catch (err) {
+      console.warn(`Decoding at ${rate} Hz failed.`, err);
+    }
+  }
+
+  console.warn("Could not decode the track, switching to the live fallback.");
+  startLiveFallback();
 }
 
 analyseTrack();
@@ -310,10 +347,36 @@ function triggerLineGlitch() {
   window.setTimeout(() => line.classList.remove("glitch-hit"), 260);
 }
 
-function analyseBeat(now, time) {
+function readLiveLevels() {
+  liveAnalyser.getByteFrequencyData(liveFreq);
+
+  let bassSum = 0;
+  for (let i = 1; i <= 8; i += 1) {
+    bassSum += liveFreq[i];
+  }
+
+  let total = 0;
+  for (let i = 0; i < liveFreq.length; i += 4) {
+    total += liveFreq[i];
+  }
+
+  return {
+    bass: bassSum / 8 / 255,
+    loudness: Math.min(total / (liveFreq.length / 4) / 110, 1)
+  };
+}
+
+function readTrackLevels(time) {
   const index = Math.min(bassEnvelope.length - 1, Math.max(0, Math.floor(time * ENVELOPE_RATE)));
-  const bass = bassEnvelope[index];
-  const loudness = Math.min(loudEnvelope[index] * 1.4, 1);
+  return {
+    bass: bassEnvelope[index],
+    loudness: Math.min(loudEnvelope[index] * 1.4, 1)
+  };
+}
+
+function analyseBeat(now, levels) {
+  const bass = levels.bass;
+  const loudness = levels.loudness;
 
   smoothLoudness += (loudness - smoothLoudness) * 0.2;
   bassAverage += (bass - bassAverage) * 0.04;
@@ -328,18 +391,11 @@ function analyseBeat(now, time) {
   }
 }
 
-function drawPixelWave(now, time) {
-  wavePixels.fill(0);
-
+function trackPeakReader(time) {
   const maxStart = Math.max(0, monoSamples.length - WINDOW_SAMPLES - 1);
   const windowStart = Math.min(maxStart, Math.max(0, Math.floor(time * sampleRate)));
-  const middle = Math.floor(waveHeight / 2);
-  const maxReach = waveHeight * WAVE_REACH;
-  const gain = WAVE_GAIN + smoothLoudness * 0.5 + beat * 0.3;
-  const [cr] = WAVE_COLOR;
-  const flick = Math.floor(now / 70);
 
-  for (let x = 0; x < waveWidth; x += 1) {
+  return (x) => {
     const start = windowStart + Math.floor((x * WINDOW_SAMPLES) / waveWidth);
     const end = Math.max(start + 1, windowStart + Math.floor(((x + 1) * WINDOW_SAMPLES) / waveWidth));
 
@@ -348,6 +404,37 @@ function drawPixelWave(now, time) {
       const value = monoSamples[i];
       if (Math.abs(value) > Math.abs(peak)) peak = value;
     }
+    return peak;
+  };
+}
+
+function livePeakReader() {
+  liveAnalyser.getByteTimeDomainData(liveTime);
+
+  return (x) => {
+    const start = Math.floor((x * liveTime.length) / waveWidth);
+    const end = Math.max(start + 1, Math.floor(((x + 1) * liveTime.length) / waveWidth));
+
+    let peak = 0;
+    for (let i = start; i < end; i += 1) {
+      const value = (liveTime[i] - 128) / 128;
+      if (Math.abs(value) > Math.abs(peak)) peak = value;
+    }
+    return peak;
+  };
+}
+
+function drawPixelWave(now, readPeak) {
+  wavePixels.fill(0);
+
+  const middle = Math.floor(waveHeight / 2);
+  const maxReach = waveHeight * WAVE_REACH;
+  const gain = WAVE_GAIN + smoothLoudness * 0.5 + beat * 0.3;
+  const [cr] = WAVE_COLOR;
+  const flick = Math.floor(now / 70);
+
+  for (let x = 0; x < waveWidth; x += 1) {
+    const peak = readPeak(x);
 
     const scaled = Math.tanh(peak * gain);
     let reach = Math.round((scaled * maxReach) / 2) * 2;
@@ -456,10 +543,15 @@ function updateLyrics() {
 }
 
 function frameLoop(now) {
-  if (monoSamples && !audio.paused) {
-    const time = audio.currentTime + LATENCY_SECONDS;
-    analyseBeat(now, time);
-    drawPixelWave(now, time);
+  if (!audio.paused) {
+    if (monoSamples) {
+      const time = audio.currentTime + LATENCY_SECONDS;
+      analyseBeat(now, readTrackLevels(time));
+      drawPixelWave(now, trackPeakReader(time));
+    } else if (liveAnalyser) {
+      analyseBeat(now, readLiveLevels());
+      drawPixelWave(now, livePeakReader());
+    }
   }
 
   updateLyrics();
