@@ -45,7 +45,7 @@
 
     <div id="lyrics" aria-live="polite" aria-atomic="true"></div>
 
-    <audio src="playlist/back-to-friends.mp3" loop preload="auto" id="bg-audio"></audio>
+    <audio loop preload="auto" id="bg-audio"></audio>
 
     <script>
       const DISCORD_USER_ID = "1449042436176220170";
@@ -120,6 +120,8 @@
 
           document.body.classList.add("ready");
 
+          window.BIO_REF = bundle.sha;
+
           const script = document.createElement("script");
           script.textContent = bundle.js;
           document.body.appendChild(script);
@@ -132,6 +134,8 @@
           link.onload = () => document.body.classList.add("ready");
           link.onerror = () => document.body.classList.add("ready");
           document.head.appendChild(link);
+
+          window.BIO_REF = null;
 
           const script = document.createElement("script");
           script.src = "script.js";
