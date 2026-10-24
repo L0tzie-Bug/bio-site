@@ -28,18 +28,35 @@ const ENVELOPE_RATE = 100;
 const LATENCY_SECONDS = 0.03;
 
 const DEBUG = /[?&]debug\b/.test(window.location.search);
+const statusLog = [];
 let statusEl = null;
+let statusHideTimer = 0;
+let statusVisible = DEBUG;
 
-function setStatus(message) {
-  console.log(`[bio] ${message}`);
-  if (!DEBUG) return;
+function renderStatus() {
+  if (!statusVisible) return;
 
   if (!statusEl) {
     statusEl = document.createElement("div");
-    statusEl.style.cssText = "position:fixed;left:8px;top:8px;z-index:99;padding:6px 8px;background:rgba(0,0,0,0.75);color:#fff;font:12px monospace;max-width:90vw;white-space:pre-wrap;pointer-events:none";
+    statusEl.style.cssText = "position:fixed;left:8px;top:8px;z-index:99;padding:6px 8px;background:rgba(0,0,0,0.8);color:#fff;font:12px monospace;max-width:90vw;white-space:pre-wrap;pointer-events:none";
     document.body.appendChild(statusEl);
   }
-  statusEl.textContent += `${message}\n`;
+  statusEl.textContent = statusLog.join("\n");
+
+  if (!DEBUG) {
+    window.clearTimeout(statusHideTimer);
+    statusHideTimer = window.setTimeout(() => {
+      if (statusEl) statusEl.style.display = "none";
+    }, 10000);
+    statusEl.style.display = "block";
+  }
+}
+
+function setStatus(message, failure) {
+  console.log(`[bio] ${message}`);
+  statusLog.push(message);
+  if (failure) statusVisible = true;
+  renderStatus();
 }
 
 function discordAvatarUrl(id, avatarHash) {
@@ -302,14 +319,41 @@ function decodeBytes(bytes, rate) {
   });
 }
 
+let liveAttempts = 0;
+
 function startLiveFallback() {
-  if (liveAnalyser || !audio.captureStream) {
-    setStatus("live fallback unavailable");
+  if (liveAnalyser) return;
+
+  if (!audio.captureStream) {
+    setStatus("live fallback unavailable in this browser", true);
+    return;
+  }
+
+  if (audio.readyState < 2) {
+    audio.addEventListener("canplay", startLiveFallback, { once: true });
+    return;
+  }
+
+  let stream = null;
+
+  try {
+    stream = audio.captureStream();
+  } catch (err) {
+    setStatus(`capture failed: ${err.message}`, true);
+    return;
+  }
+
+  if (stream.getAudioTracks().length === 0) {
+    liveAttempts += 1;
+    if (liveAttempts <= 8) {
+      window.setTimeout(startLiveFallback, 750);
+    } else {
+      setStatus("live fallback found no audio track", true);
+    }
     return;
   }
 
   try {
-    const stream = audio.captureStream();
     liveContext = new (window.AudioContext || window.webkitAudioContext)();
     const source = liveContext.createMediaStreamSource(stream);
     liveAnalyser = liveContext.createAnalyser();
@@ -329,7 +373,7 @@ function startLiveFallback() {
   } catch (err) {
     liveAnalyser = null;
     console.warn("Live audio fallback could not start.", err);
-    setStatus(`live fallback failed: ${err.message}`);
+    setStatus(`live fallback failed: ${err.message}`, true);
   }
 }
 
@@ -339,7 +383,7 @@ async function loadTrack() {
   try {
     bytes = await fetchTrackBytes();
   } catch (err) {
-    setStatus(`track unavailable: ${err.message}`);
+    setStatus(`track unavailable: ${err.message}`, true);
     loadLyrics(NaN);
     return;
   }
@@ -366,12 +410,44 @@ async function loadTrack() {
     }
   }
 
+  if (!decoded) {
+    try {
+      const Ctor = window.AudioContext || window.webkitAudioContext;
+      const plain = new Ctor();
+      decoded = await new Promise((resolve, reject) => {
+        const promise = plain.decodeAudioData(bytes.slice(0), resolve, reject);
+        if (promise && typeof promise.then === "function") promise.then(resolve, reject);
+      });
+      plain.close().catch(() => {});
+      setStatus(`decoded with plain context, ${decoded.duration.toFixed(1)} s`);
+    } catch (err) {
+      console.warn("Plain context decode failed.", err);
+      setStatus(`plain decode failed: ${err && err.message ? err.message : err}`);
+    }
+  }
+
+  if (!decoded) {
+    setStatus("could not decode the track, trying the live fallback", true);
+  }
+
+  let envelopesBuilt = false;
+
   if (decoded) {
-    buildEnvelopes(decoded);
-    loadLyrics(decoded.duration);
-  } else {
+    try {
+      buildEnvelopes(decoded);
+      envelopesBuilt = true;
+      setStatus("wave source: decoded track");
+    } catch (err) {
+      monoSamples = null;
+      console.warn("Building the wave data failed.", err);
+      setStatus(`wave data failed: ${err && err.message ? err.message : err}`, true);
+    }
+  }
+
+  loadLyrics(decoded ? decoded.duration : NaN);
+
+  if (!envelopesBuilt) {
     startLiveFallback();
-    loadLyrics(NaN);
   }
 }
 
@@ -426,6 +502,12 @@ function enterSite() {
   }, 1200);
 
   entered = true;
+
+  window.setTimeout(() => {
+    if (!monoSamples && !liveAnalyser) {
+      setStatus("wave not ready 12 s after entering", true);
+    }
+  }, 12000);
 
   if (trackReady) {
     audio.currentTime = 0;
