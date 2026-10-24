@@ -19,6 +19,9 @@ const PIXEL_SIZE = 6;
 const WAVE_GAIN = 1.25;
 const WAVE_REACH = 0.2;
 const WAVE_COLOR = [236, 236, 236];
+const WINDOW_SAMPLES = 2048;
+const ENVELOPE_RATE = 100;
+const LATENCY_SECONDS = 0.03;
 
 function discordAvatarUrl(id, avatarHash) {
   if (!avatarHash) {
@@ -60,11 +63,12 @@ loadDiscordProfile();
 let lyrics = [];
 let currentLyricIndex = -1;
 
-let audioCtx = null;
-let analyser = null;
-let timeData = null;
-let freqData = null;
 let loopStarted = false;
+
+let monoSamples = null;
+let sampleRate = 44100;
+let bassEnvelope = null;
+let loudEnvelope = null;
 
 let smoothLoudness = 0;
 let bassAverage = 0;
@@ -165,6 +169,85 @@ async function loadLyrics() {
 
 loadLyrics();
 
+function buildEnvelopes(buffer) {
+  sampleRate = buffer.sampleRate;
+  const length = buffer.length;
+  const channels = buffer.numberOfChannels;
+
+  const mono = new Float32Array(length);
+  for (let c = 0; c < channels; c += 1) {
+    const data = buffer.getChannelData(c);
+    for (let i = 0; i < length; i += 1) {
+      mono[i] += data[i] / channels;
+    }
+  }
+
+  const frames = Math.ceil(length / sampleRate * ENVELOPE_RATE) + 1;
+  const hop = Math.floor(sampleRate / ENVELOPE_RATE);
+  const bass = new Float32Array(frames);
+  const loud = new Float32Array(frames);
+
+  const alpha = 1 - Math.exp((-2 * Math.PI * 150) / sampleRate);
+  let low = 0;
+  let bassSum = 0;
+  let loudSum = 0;
+  let count = 0;
+  let frame = 0;
+
+  for (let i = 0; i < length; i += 1) {
+    const sample = mono[i];
+    low += alpha * (sample - low);
+    bassSum += low * low;
+    loudSum += sample * sample;
+    count += 1;
+
+    if (count >= hop) {
+      bass[frame] = Math.sqrt(bassSum / count);
+      loud[frame] = Math.sqrt(loudSum / count);
+      frame += 1;
+      bassSum = 0;
+      loudSum = 0;
+      count = 0;
+    }
+  }
+
+  let bassMax = 1e-6;
+  let loudMax = 1e-6;
+  for (let i = 0; i < frames; i += 1) {
+    if (bass[i] > bassMax) bassMax = bass[i];
+    if (loud[i] > loudMax) loudMax = loud[i];
+  }
+  for (let i = 0; i < frames; i += 1) {
+    bass[i] /= bassMax;
+    loud[i] /= loudMax;
+  }
+
+  monoSamples = mono;
+  bassEnvelope = bass;
+  loudEnvelope = loud;
+}
+
+async function analyseTrack() {
+  try {
+    const res = await fetch(audio.currentSrc || audio.src);
+    if (!res.ok) throw new Error(`Audio fetch failed: ${res.status}`);
+
+    const bytes = await res.arrayBuffer();
+    const OfflineCtx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+    const decoder = new OfflineCtx(2, 1, 44100);
+    const buffer = await new Promise((resolve, reject) => {
+      const promise = decoder.decodeAudioData(bytes, resolve, reject);
+      if (promise && typeof promise.then === "function") promise.then(resolve, reject);
+    });
+
+    buildEnvelopes(buffer);
+  } catch (err) {
+    console.warn("Could not analyse the track, the wave will stay flat.", err);
+  }
+}
+
+analyseTrack();
+
 function resizeCanvas() {
   waveWidth = Math.max(1, Math.ceil(window.innerWidth / PIXEL_SIZE));
   waveHeight = Math.max(1, Math.ceil(window.innerHeight / PIXEL_SIZE));
@@ -182,14 +265,17 @@ function packColor(r, g, b, a) {
 }
 
 function startPlayback() {
+  audio.muted = false;
+  audio.volume = 1;
+
   const attempt = audio.play();
 
   if (attempt && typeof attempt.catch === "function") {
     attempt.catch((err) => {
       console.warn("Playback was blocked, will retry on next interaction.", err);
       const retry = () => {
+        audio.muted = false;
         audio.play().catch(() => {});
-        if (audioCtx && audioCtx.state === "suspended") audioCtx.resume();
       };
       document.addEventListener("pointerdown", retry, { once: true });
       document.addEventListener("keydown", retry, { once: true });
@@ -205,16 +291,8 @@ function enterSite() {
     overlay.style.display = "none";
   }, 1200);
 
-  audio.volume = 1;
   audio.currentTime = 0;
   startPlayback();
-
-  try {
-    setupAudio();
-  } catch (err) {
-    console.warn("Audio analysis could not start, playing without the wave.", err);
-    analyser = null;
-  }
 
   if (!loopStarted) {
     loopStarted = true;
@@ -222,49 +300,15 @@ function enterSite() {
   }
 }
 
-function setupAudio() {
-  if (audioCtx) {
-    audioCtx.resume();
-    return;
-  }
+function analyseBeat(now, time) {
+  const index = Math.min(bassEnvelope.length - 1, Math.max(0, Math.floor(time * ENVELOPE_RATE)));
+  const bass = bassEnvelope[index];
+  const loudness = Math.min(loudEnvelope[index] * 1.4, 1);
 
-  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  const source = audioCtx.createMediaElementSource(audio);
-  const node = audioCtx.createAnalyser();
-  node.fftSize = 2048;
-  node.smoothingTimeConstant = 0.2;
-  timeData = new Uint8Array(node.fftSize);
-  freqData = new Uint8Array(node.frequencyBinCount);
-
-  source.connect(node);
-  node.connect(audioCtx.destination);
-  analyser = node;
-
-  if (audioCtx.state === "suspended") {
-    audioCtx.resume().catch(() => {});
-  }
-}
-
-function analyseBeat(now) {
-  analyser.getByteFrequencyData(freqData);
-
-  let bassSum = 0;
-  const bassBins = 8;
-  for (let i = 1; i <= bassBins; i += 1) {
-    bassSum += freqData[i];
-  }
-  const bass = bassSum / bassBins / 255;
-
-  let total = 0;
-  for (let i = 0; i < freqData.length; i += 4) {
-    total += freqData[i];
-  }
-  const loudness = Math.min(total / (freqData.length / 4) / 110, 1);
   smoothLoudness += (loudness - smoothLoudness) * 0.2;
-
   bassAverage += (bass - bassAverage) * 0.04;
 
-  if (bass > 0.42 && bass > bassAverage * 1.16 + 0.02 && now - lastBeatAt > 170) {
+  if (bass > 0.3 && bass > bassAverage * 1.16 + 0.02 && now - lastBeatAt > 170) {
     beat = 1;
     lastBeatAt = now;
   } else {
@@ -279,12 +323,11 @@ function analyseBeat(now) {
   }
 }
 
-function drawPixelWave(now) {
-  analyser.getByteTimeDomainData(timeData);
-
+function drawPixelWave(now, time) {
   wavePixels.fill(0);
 
-  const sampleCount = timeData.length;
+  const maxStart = Math.max(0, monoSamples.length - WINDOW_SAMPLES - 1);
+  const windowStart = Math.min(maxStart, Math.max(0, Math.floor(time * sampleRate)));
   const middle = Math.floor(waveHeight / 2);
   const maxReach = waveHeight * WAVE_REACH;
   const gain = WAVE_GAIN + smoothLoudness * 0.4 + beat * 0.25;
@@ -292,12 +335,12 @@ function drawPixelWave(now) {
   const flick = Math.floor(now / 70);
 
   for (let x = 0; x < waveWidth; x += 1) {
-    const start = Math.floor((x * sampleCount) / waveWidth);
-    const end = Math.max(start + 1, Math.floor(((x + 1) * sampleCount) / waveWidth));
+    const start = windowStart + Math.floor((x * WINDOW_SAMPLES) / waveWidth);
+    const end = Math.max(start + 1, windowStart + Math.floor(((x + 1) * WINDOW_SAMPLES) / waveWidth));
 
     let peak = 0;
     for (let i = start; i < end; i += 1) {
-      const value = (timeData[i] - 128) / 128;
+      const value = monoSamples[i];
       if (Math.abs(value) > Math.abs(peak)) peak = value;
     }
 
@@ -408,14 +451,10 @@ function updateLyrics() {
 }
 
 function frameLoop(now) {
-  if (analyser) {
-    try {
-      analyseBeat(now);
-      drawPixelWave(now);
-    } catch (err) {
-      console.warn("Visualizer stopped.", err);
-      analyser = null;
-    }
+  if (monoSamples && !audio.paused) {
+    const time = audio.currentTime + LATENCY_SECONDS;
+    analyseBeat(now, time);
+    drawPixelWave(now, time);
   }
 
   updateLyrics();
