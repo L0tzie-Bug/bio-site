@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Lotzi</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IM+Fell+English:ital@0;1&family=Special+Elite&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <div id="entry-overlay" onclick="enterSite()">
+      <div class="entry-prompt">[ Click to enter ]</div>
+    </div>
+
+    <div id="vintage-bg"></div>
+    <canvas id="wave-canvas"></canvas>
+    <div id="grain-overlay"></div>
+    <div id="dust-overlay"></div>
+    <div id="vignette-overlay"></div>
+
+    <div class="profile-card" id="profile-card">
+      <div class="card-content-inner">
+        <div class="avatar-container">
+          <img class="avatar" id="avatar-img" src="" alt="Discord profile picture">
+        </div>
+        <div class="profile-details">
+          <span class="display-name" id="display-name">Lotzi</span>
+          <span class="username" id="username">@l0tzie</span>
+        </div>
+        <p class="profile-bio">Hellur</p>
+      </div>
+    </div>
+
+    <div class="social-container">
+      <a href="https://discord.com" target="_blank" rel="noopener noreferrer" class="social-btn discord" aria-label="Discord">
+        <img src="https://cdn.simpleicons.org/discord/F1E2C3" alt="">
+      </a>
+      <a href="https://spotify.com" target="_blank" rel="noopener noreferrer" class="social-btn spotify" aria-label="Spotify">
+        <img src="https://cdn.simpleicons.org/spotify/F1E2C3" alt="">
+      </a>
+      <a href="https://roblox.com" target="_blank" rel="noopener noreferrer" class="social-btn roblox" aria-label="Roblox">
+        <img src="https://cdn.simpleicons.org/roblox/F1E2C3" alt="">
+      </a>
+    </div>
+
+    <div id="lyrics" aria-live="polite" aria-atomic="true"></div>
+
+    <audio src="playlist/back-to-friends.mp3" loop preload="auto" id="bg-audio"></audio>
+
+    <script>
+      const DISCORD_USER_ID = "1449042436176220170";
+    </script>
+    <script src="script.js"></script>
+  </body>
+</html>
