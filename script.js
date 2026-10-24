@@ -15,6 +15,10 @@ const SONG_TITLE = "back to friends";
 const SONG_ARTIST = "sombr";
 const LRCLIB = "https://lrclib.net/api";
 
+const REPO = "L0tzie-Bug/bio";
+const TRACK_PATH = "playlist/back-to-friends.mp3";
+const TRACK_TIMEOUT = 45000;
+
 const PIXEL_SIZE = 6;
 const WAVE_GAIN = 1.7;
 const WAVE_REACH = 0.44;
@@ -22,6 +26,21 @@ const WAVE_COLOR = [236, 236, 236];
 const WINDOW_SAMPLES = 2048;
 const ENVELOPE_RATE = 100;
 const LATENCY_SECONDS = 0.03;
+
+const DEBUG = /[?&]debug\b/.test(window.location.search);
+let statusEl = null;
+
+function setStatus(message) {
+  console.log(`[bio] ${message}`);
+  if (!DEBUG) return;
+
+  if (!statusEl) {
+    statusEl = document.createElement("div");
+    statusEl.style.cssText = "position:fixed;left:8px;top:8px;z-index:99;padding:6px 8px;background:rgba(0,0,0,0.75);color:#fff;font:12px monospace;max-width:90vw;white-space:pre-wrap;pointer-events:none";
+    document.body.appendChild(statusEl);
+  }
+  statusEl.textContent += `${message}\n`;
+}
 
 function discordAvatarUrl(id, avatarHash) {
   if (!avatarHash) {
@@ -64,6 +83,10 @@ let lyrics = [];
 let currentLyricIndex = -1;
 
 let loopStarted = false;
+let entered = false;
+let trackReady = false;
+let trackObjectUrl = null;
+let playbackStarted = false;
 
 let monoSamples = null;
 let sampleRate = 44100;
@@ -106,11 +129,10 @@ function parseLrc(text) {
   return entries;
 }
 
-function pickBestTrack(tracks) {
+function pickBestTrack(tracks, duration) {
   const synced = tracks.filter((track) => track && track.syncedLyrics);
   if (!synced.length) return null;
 
-  const duration = audio.duration;
   if (!Number.isFinite(duration) || duration <= 0) return synced[0];
 
   let best = synced[0];
@@ -133,7 +155,7 @@ async function requestJson(url) {
   return res.json();
 }
 
-async function loadLyrics() {
+async function loadLyrics(duration) {
   const attempts = [
     async () => {
       const params = new URLSearchParams({ track_name: SONG_TITLE, artist_name: SONG_ARTIST });
@@ -153,13 +175,14 @@ async function loadLyrics() {
     try {
       const result = await attempt();
       const tracks = Array.isArray(result) ? result : [result];
-      const track = pickBestTrack(tracks);
+      const track = pickBestTrack(tracks, duration);
 
       if (track) {
         const parsed = parseLrc(track.syncedLyrics);
         if (parsed.length) {
           lyrics = parsed;
           currentLyricIndex = -2;
+          setStatus(`lyrics: ${parsed.length} lines`);
           return;
         }
       }
@@ -168,10 +191,8 @@ async function loadLyrics() {
     }
   }
 
-  console.warn("No synced lyrics could be loaded.");
+  setStatus("lyrics: none found");
 }
-
-loadLyrics();
 
 function buildEnvelopes(buffer) {
   sampleRate = buffer.sampleRate;
@@ -231,11 +252,47 @@ function buildEnvelopes(buffer) {
   loudEnvelope = loud;
 }
 
-async function decodeTrack(rate) {
-  const res = await fetch(audio.currentSrc || audio.src);
-  if (!res.ok) throw new Error(`Audio fetch failed: ${res.status}`);
+function trackUrls() {
+  const ref = typeof window.BIO_REF === "string" && window.BIO_REF ? window.BIO_REF : null;
+  const urls = [];
 
-  const bytes = await res.arrayBuffer();
+  if (ref) urls.push(`https://cdn.jsdelivr.net/gh/${REPO}@${ref}/${TRACK_PATH}`);
+  urls.push(`https://cdn.jsdelivr.net/gh/${REPO}@main/${TRACK_PATH}`);
+  urls.push(TRACK_PATH);
+
+  return urls;
+}
+
+async function fetchTrackBytes() {
+  let lastError = null;
+
+  for (const url of trackUrls()) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TRACK_TIMEOUT);
+
+    try {
+      setStatus(`fetching ${url}`);
+      const res = await fetch(url, { signal: controller.signal });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const bytes = await res.arrayBuffer();
+      if (bytes.byteLength < 100000) throw new Error(`Too small: ${bytes.byteLength} bytes`);
+
+      clearTimeout(timer);
+      setStatus(`fetched ${(bytes.byteLength / 1048576).toFixed(1)} MB`);
+      return bytes;
+    } catch (err) {
+      clearTimeout(timer);
+      lastError = err;
+      console.warn(`Track fetch failed for ${url}.`, err);
+      setStatus(`fetch failed: ${err.message}`);
+    }
+  }
+
+  throw lastError || new Error("No track source worked");
+}
+
+function decodeBytes(bytes, rate) {
   const OfflineCtx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
   const decoder = new OfflineCtx(2, 1, rate);
 
@@ -246,7 +303,10 @@ async function decodeTrack(rate) {
 }
 
 function startLiveFallback() {
-  if (liveAnalyser || !audio.captureStream) return;
+  if (liveAnalyser || !audio.captureStream) {
+    setStatus("live fallback unavailable");
+    return;
+  }
 
   try {
     const stream = audio.captureStream();
@@ -257,32 +317,65 @@ function startLiveFallback() {
     liveAnalyser.smoothingTimeConstant = 0.2;
     liveTime = new Uint8Array(liveAnalyser.fftSize);
     liveFreq = new Uint8Array(liveAnalyser.frequencyBinCount);
+
+    const silent = liveContext.createGain();
+    silent.gain.value = 0;
+
     source.connect(liveAnalyser);
+    liveAnalyser.connect(silent);
+    silent.connect(liveContext.destination);
     liveContext.resume().catch(() => {});
+    setStatus("live fallback running");
   } catch (err) {
     liveAnalyser = null;
     console.warn("Live audio fallback could not start.", err);
+    setStatus(`live fallback failed: ${err.message}`);
   }
 }
 
-async function analyseTrack() {
-  const rates = [22050, 11025];
+async function loadTrack() {
+  let bytes;
+
+  try {
+    bytes = await fetchTrackBytes();
+  } catch (err) {
+    setStatus(`track unavailable: ${err.message}`);
+    loadLyrics(NaN);
+    return;
+  }
+
+  trackObjectUrl = URL.createObjectURL(new Blob([bytes.slice(0)], { type: "audio/mpeg" }));
+  audio.src = trackObjectUrl;
+  audio.load();
+  trackReady = true;
+  setStatus("audio source set");
+
+  if (entered) startPlayback();
+
+  let decoded = null;
+  const rates = [22050, 44100];
 
   for (const rate of rates) {
     try {
-      const buffer = await decodeTrack(rate);
-      buildEnvelopes(buffer);
-      return;
+      decoded = await decodeBytes(bytes.slice(0), rate);
+      setStatus(`decoded at ${rate} Hz, ${decoded.duration.toFixed(1)} s`);
+      break;
     } catch (err) {
       console.warn(`Decoding at ${rate} Hz failed.`, err);
+      setStatus(`decode ${rate} failed: ${err && err.message ? err.message : err}`);
     }
   }
 
-  console.warn("Could not decode the track, switching to the live fallback.");
-  startLiveFallback();
+  if (decoded) {
+    buildEnvelopes(decoded);
+    loadLyrics(decoded.duration);
+  } else {
+    startLiveFallback();
+    loadLyrics(NaN);
+  }
 }
 
-analyseTrack();
+loadTrack();
 
 function resizeCanvas() {
   waveWidth = Math.max(1, Math.ceil(window.innerWidth / PIXEL_SIZE));
@@ -301,17 +394,22 @@ function packColor(r, g, b, a) {
 }
 
 function startPlayback() {
+  if (!trackReady) return;
+
   audio.muted = false;
   audio.volume = 1;
 
   const attempt = audio.play();
+  playbackStarted = true;
 
   if (attempt && typeof attempt.catch === "function") {
     attempt.catch((err) => {
       console.warn("Playback was blocked, will retry on next interaction.", err);
+      setStatus("playback blocked, waiting for interaction");
       const retry = () => {
         audio.muted = false;
         audio.play().catch(() => {});
+        if (liveContext) liveContext.resume().catch(() => {});
       };
       document.addEventListener("pointerdown", retry, { once: true });
       document.addEventListener("keydown", retry, { once: true });
@@ -327,14 +425,20 @@ function enterSite() {
     overlay.style.display = "none";
   }, 1200);
 
-  audio.currentTime = 0;
-  startPlayback();
+  entered = true;
+
+  if (trackReady) {
+    audio.currentTime = 0;
+    startPlayback();
+  }
 
   if (!loopStarted) {
     loopStarted = true;
     requestAnimationFrame(frameLoop);
   }
 }
+
+window.enterSite = enterSite;
 
 function triggerLineGlitch() {
   const line = lyricsElement.querySelector(".lyric-line:not(.leaving)");
@@ -543,18 +647,23 @@ function updateLyrics() {
 }
 
 function frameLoop(now) {
-  if (!audio.paused) {
-    if (monoSamples) {
-      const time = audio.currentTime + LATENCY_SECONDS;
-      analyseBeat(now, readTrackLevels(time));
-      drawPixelWave(now, trackPeakReader(time));
-    } else if (liveAnalyser) {
-      analyseBeat(now, readLiveLevels());
-      drawPixelWave(now, livePeakReader());
+  try {
+    if (!audio.paused) {
+      if (monoSamples) {
+        const time = audio.currentTime + LATENCY_SECONDS;
+        analyseBeat(now, readTrackLevels(time));
+        drawPixelWave(now, trackPeakReader(time));
+      } else if (liveAnalyser) {
+        analyseBeat(now, readLiveLevels());
+        drawPixelWave(now, livePeakReader());
+      }
     }
+
+    updateLyrics();
+  } catch (err) {
+    console.warn("Frame error.", err);
   }
 
-  updateLyrics();
   requestAnimationFrame(frameLoop);
 }
 
