@@ -6,195 +6,51 @@
     <title>Lotzi</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=IM+Fell+English:ital@0;1&family=Special+Elite&display=swap" rel="stylesheet">
-    <style>
-      html, body { margin: 0; background: #080808; }
-      body:not(.ready) { visibility: hidden; }
-    </style>
+    <link rel="stylesheet" href="styles.css">
   </head>
   <body>
-    <div id="entry-overlay" onclick="window.enterSite && window.enterSite()">
-      <div class="entry-prompt">[ Click to enter ]</div>
+    <div id="entry-overlay" role="button" tabindex="0" aria-label="Click to enter">
+      <div class="entry-prompt">click to enter<span class="cursor">_</span></div>
     </div>
 
-    <div id="vintage-bg"></div>
-    <canvas id="wave-canvas"></canvas>
-    <div id="grain-overlay"></div>
-    <div id="dust-overlay"></div>
-    <div id="vignette-overlay"></div>
+    <div id="stage">
+      <div id="vintage-bg"></div>
+      <canvas id="wave-canvas"></canvas>
+      <div id="grain-overlay"></div>
+      <div id="dust-overlay"></div>
+      <div id="scanlines"></div>
+      <div id="vignette-overlay"></div>
 
-    <div class="profile-card" id="profile-card">
-      <div class="card-content-inner">
-        <div class="avatar-container">
-          <img class="avatar" id="avatar-img" src="" alt="Discord profile picture">
+      <div class="profile-card" id="profile-card">
+        <div class="card-content-inner">
+          <div class="avatar-container">
+            <img class="avatar" id="avatar-img" src="" alt="Discord profile picture">
+          </div>
+          <div class="profile-details">
+            <span class="display-name" id="display-name">Lotzi</span>
+            <span class="username" id="username">@l0tzie</span>
+          </div>
+          <p class="profile-bio" id="profile-bio">Hellur</p>
         </div>
-        <div class="profile-details">
-          <span class="display-name" id="display-name">Lotzi</span>
-          <span class="username" id="username">@l0tzie</span>
-        </div>
-        <p class="profile-bio">Hellur</p>
       </div>
+
+      <div class="social-container" id="socials">
+        <a href="https://spotify.com" target="_blank" rel="noopener noreferrer" class="social-btn spotify">Spotify</a>
+        <a href="https://discord.com" target="_blank" rel="noopener noreferrer" class="social-btn discord">Discord</a>
+        <a href="https://roblox.com" target="_blank" rel="noopener noreferrer" class="social-btn roblox">Roblox</a>
+      </div>
+
+      <div id="lyrics" aria-live="polite" aria-atomic="true"></div>
     </div>
 
-    <div class="social-container">
-      <a href="https://spotify.com" target="_blank" rel="noopener noreferrer" class="social-btn spotify">Spotify</a>
-      <a href="https://discord.com" target="_blank" rel="noopener noreferrer" class="social-btn discord">Discord</a>
-      <a href="https://roblox.com" target="_blank" rel="noopener noreferrer" class="social-btn roblox">Roblox</a>
-    </div>
+    <div id="crt-flash"></div>
 
-    <div id="lyrics" aria-live="polite" aria-atomic="true"></div>
-
-    <audio loop preload="auto" id="bg-audio"></audio>
+    <audio loop preload="auto" id="bg-audio" src="playlist/back-to-friends.mp3"></audio>
 
     <script>
       const DISCORD_USER_ID = "1449042436176220170";
     </script>
-
-    <script>
-      (function () {
-        const REPO = "L0tzie-Bug/bio";
-        const BRANCH = "main";
-        const CACHE_KEY = "bio-bundle-v2";
-        const API_TIMEOUT = 4000;
-        const ASSET_TIMEOUT = 8000;
-        const CACHE_GRACE = 5000;
-
-        function readCache() {
-          try {
-            const raw = localStorage.getItem(CACHE_KEY);
-            if (!raw) return null;
-            const data = JSON.parse(raw);
-            return data && data.sha && data.css && data.js ? data : null;
-          } catch (err) {
-            return null;
-          }
-        }
-
-        function writeCache(bundle) {
-          try {
-            localStorage.setItem(CACHE_KEY, JSON.stringify(bundle));
-          } catch (err) {
-            console.warn("Could not cache the site bundle.", err);
-          }
-        }
-
-        function timedFetch(url, options, ms) {
-          const controller = new AbortController();
-          const timer = setTimeout(() => controller.abort(), ms);
-          return fetch(url, Object.assign({}, options, { signal: controller.signal }))
-            .finally(() => clearTimeout(timer));
-        }
-
-        async function latestSha() {
-          const res = await timedFetch(
-            `https://api.github.com/repos/${REPO}/commits/${BRANCH}`,
-            { headers: { Accept: "application/vnd.github.sha" } },
-            API_TIMEOUT
-          );
-          if (!res.ok) throw new Error(`GitHub API ${res.status}`);
-          const sha = (await res.text()).trim();
-          if (!/^[0-9a-f]{40}$/.test(sha)) throw new Error("Unexpected commit response");
-          return sha;
-        }
-
-        async function fetchText(url) {
-          const res = await timedFetch(url, {}, ASSET_TIMEOUT);
-          if (!res.ok) throw new Error(`Asset ${res.status}`);
-          return res.text();
-        }
-
-        async function fetchBundle(ref) {
-          const base = `https://cdn.jsdelivr.net/gh/${REPO}@${ref}`;
-          const [css, js] = await Promise.all([
-            fetchText(`${base}/styles.css`),
-            fetchText(`${base}/script.js`)
-          ]);
-          return { sha: ref, css, js };
-        }
-
-        async function fetchRawBundle() {
-          const base = `https://raw.githubusercontent.com/${REPO}/${BRANCH}`;
-          const [css, js] = await Promise.all([
-            fetchText(`${base}/styles.css`),
-            fetchText(`${base}/script.js`)
-          ]);
-          return { sha: BRANCH, css, js };
-        }
-
-        function applyBundle(bundle) {
-          const style = document.createElement("style");
-          style.textContent = bundle.css;
-          document.head.appendChild(style);
-
-          document.body.classList.add("ready");
-
-          window.BIO_REF = bundle.sha;
-
-          const script = document.createElement("script");
-          script.textContent = bundle.js;
-          document.body.appendChild(script);
-        }
-
-        function applyLocal() {
-          const link = document.createElement("link");
-          link.rel = "stylesheet";
-          link.href = "styles.css";
-          link.onload = () => document.body.classList.add("ready");
-          link.onerror = () => document.body.classList.add("ready");
-          document.head.appendChild(link);
-
-          window.BIO_REF = null;
-
-          const script = document.createElement("script");
-          script.src = "script.js";
-          document.body.appendChild(script);
-        }
-
-        async function boot() {
-          const cached = readCache();
-
-          const update = (async () => {
-            const sha = await latestSha();
-            if (cached && cached.sha === sha) return cached;
-            const bundle = await fetchBundle(sha);
-            writeCache(bundle);
-            return bundle;
-          })();
-
-          let bundle = null;
-
-          if (cached) {
-            const grace = new Promise((resolve) => setTimeout(() => resolve(cached), CACHE_GRACE));
-            bundle = await Promise.race([update.catch(() => cached), grace]);
-            update.catch((err) => console.warn("Update check failed, using cached bundle.", err));
-          } else {
-            try {
-              bundle = await update;
-            } catch (err) {
-              console.warn("Latest commit lookup failed, trying the branch directly.", err);
-              try {
-                bundle = await fetchRawBundle();
-              } catch (innerErr) {
-                console.warn("GitHub raw bundle failed, trying the CDN branch copy.", innerErr);
-                try {
-                  bundle = await fetchBundle(BRANCH);
-                } catch (lastErr) {
-                  console.warn("Branch bundle failed too, using local files.", lastErr);
-                }
-              }
-            }
-          }
-
-          if (bundle) {
-            applyBundle(bundle);
-          } else {
-            applyLocal();
-          }
-        }
-
-        boot();
-      })();
-    </script>
+    <script src="script.js"></script>
   </body>
 </html>
