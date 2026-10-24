@@ -16,9 +16,10 @@ const SONG_TITLE = "back to friends";
 const SONG_ARTIST = "sombr";
 const LRCLIB = "https://lrclib.net/api";
 
-const PIXEL_SIZE = 6;
-const WAVE_GAIN = 2.1;
-const WAVE_COLOR = [238, 205, 140];
+const PIXEL_SIZE = 5;
+const WAVE_GAIN = 1.25;
+const WAVE_REACH = 0.2;
+const WAVE_COLOR = [236, 236, 236];
 
 function discordAvatarUrl(id, avatarHash) {
   if (!avatarHash) {
@@ -257,8 +258,8 @@ function drawPixelWave(now) {
 
   const sampleCount = timeData.length;
   const middle = Math.floor(waveHeight / 2);
-  const maxReach = waveHeight * 0.49;
-  const gain = WAVE_GAIN + smoothLoudness * 0.9 + beat * 0.5;
+  const maxReach = waveHeight * WAVE_REACH;
+  const gain = WAVE_GAIN + smoothLoudness * 0.4 + beat * 0.25;
   const [cr, cg, cb] = WAVE_COLOR;
   const flick = Math.floor(now / 70);
 
@@ -291,16 +292,12 @@ function drawPixelWave(now) {
 
       const brightness = isTip ? 1 : 0.45 + t * 0.4 + (rand - 0.5) * 0.35;
       const alpha = Math.max(40, Math.min(255, Math.floor(brightness * 255)));
+      const level = Math.min(255, Math.floor(cr * (0.8 + brightness * 0.2)));
 
       const y = middle + step * direction;
       if (y < 0 || y >= waveHeight) continue;
 
-      wavePixels[y * waveWidth + x] = packColor(
-        Math.min(255, Math.floor(cr * (0.85 + brightness * 0.15))),
-        Math.min(255, Math.floor(cg * (0.85 + brightness * 0.15))),
-        Math.min(255, Math.floor(cb * (0.8 + brightness * 0.2))),
-        alpha
-      );
+      wavePixels[y * waveWidth + x] = packColor(level, level, level, alpha);
 
       if (mirrored && step > 0 && reach > 6 && rand > 0.93) {
         const echoY = middle - step * direction;
