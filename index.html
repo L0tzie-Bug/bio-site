@@ -6,11 +6,15 @@
     <title>Lotzi</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=IM+Fell+English:ital@0;1&family=Special+Elite&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css">
+    <style>
+      html, body { margin: 0; background: #080808; }
+      body:not(.ready) { visibility: hidden; }
+    </style>
   </head>
   <body>
-    <div id="entry-overlay" onclick="enterSite()">
+    <div id="entry-overlay" onclick="window.enterSite && window.enterSite()">
       <div class="entry-prompt">[ Click to enter ]</div>
     </div>
 
@@ -46,6 +50,134 @@
     <script>
       const DISCORD_USER_ID = "1449042436176220170";
     </script>
-    <script src="script.js"></script>
+
+    <script>
+      (function () {
+        const REPO = "L0tzie-Bug/bio-site";
+        const BRANCH = "main";
+        const CACHE_KEY = "bio-bundle-v1";
+        const API_TIMEOUT = 4000;
+        const ASSET_TIMEOUT = 8000;
+        const CACHE_GRACE = 1500;
+
+        function readCache() {
+          try {
+            const raw = localStorage.getItem(CACHE_KEY);
+            if (!raw) return null;
+            const data = JSON.parse(raw);
+            return data && data.sha && data.css && data.js ? data : null;
+          } catch (err) {
+            return null;
+          }
+        }
+
+        function writeCache(bundle) {
+          try {
+            localStorage.setItem(CACHE_KEY, JSON.stringify(bundle));
+          } catch (err) {
+            console.warn("Could not cache the site bundle.", err);
+          }
+        }
+
+        function timedFetch(url, options, ms) {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), ms);
+          return fetch(url, Object.assign({}, options, { signal: controller.signal }))
+            .finally(() => clearTimeout(timer));
+        }
+
+        async function latestSha() {
+          const res = await timedFetch(
+            `https://api.github.com/repos/${REPO}/commits/${BRANCH}`,
+            { headers: { Accept: "application/vnd.github.sha" } },
+            API_TIMEOUT
+          );
+          if (!res.ok) throw new Error(`GitHub API ${res.status}`);
+          const sha = (await res.text()).trim();
+          if (!/^[0-9a-f]{40}$/.test(sha)) throw new Error("Unexpected commit response");
+          return sha;
+        }
+
+        async function fetchText(url) {
+          const res = await timedFetch(url, {}, ASSET_TIMEOUT);
+          if (!res.ok) throw new Error(`Asset ${res.status}`);
+          return res.text();
+        }
+
+        async function fetchBundle(ref) {
+          const base = `https://cdn.jsdelivr.net/gh/${REPO}@${ref}`;
+          const [css, js] = await Promise.all([
+            fetchText(`${base}/styles.css`),
+            fetchText(`${base}/script.js`)
+          ]);
+          return { sha: ref, css, js };
+        }
+
+        function applyBundle(bundle) {
+          const style = document.createElement("style");
+          style.textContent = bundle.css;
+          document.head.appendChild(style);
+
+          document.body.classList.add("ready");
+
+          const script = document.createElement("script");
+          script.textContent = bundle.js;
+          document.body.appendChild(script);
+        }
+
+        function applyLocal() {
+          const link = document.createElement("link");
+          link.rel = "stylesheet";
+          link.href = "styles.css";
+          link.onload = () => document.body.classList.add("ready");
+          link.onerror = () => document.body.classList.add("ready");
+          document.head.appendChild(link);
+
+          const script = document.createElement("script");
+          script.src = "script.js";
+          document.body.appendChild(script);
+        }
+
+        async function boot() {
+          const cached = readCache();
+
+          const update = (async () => {
+            const sha = await latestSha();
+            if (cached && cached.sha === sha) return cached;
+            const bundle = await fetchBundle(sha);
+            writeCache(bundle);
+            return bundle;
+          })();
+
+          let bundle = null;
+
+          if (cached) {
+            const grace = new Promise((resolve) => setTimeout(() => resolve(cached), CACHE_GRACE));
+            bundle = await Promise.race([update.catch(() => cached), grace]);
+            update.catch((err) => console.warn("Update check failed, using cached bundle.", err));
+          } else {
+            try {
+              bundle = await update;
+            } catch (err) {
+              console.warn("Latest commit lookup failed, trying the branch directly.", err);
+              try {
+                bundle = await fetchBundle(BRANCH);
+                writeCache(bundle);
+              } catch (innerErr) {
+                console.warn("Branch bundle failed too, using local files.", innerErr);
+              }
+            }
+          }
+
+          if (bundle) {
+            applyBundle(bundle);
+          } else {
+            applyLocal();
+          }
+        }
+
+        boot();
+      })();
+    </script>
   </body>
 </html>
