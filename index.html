@@ -113,6 +113,15 @@
           return { sha: ref, css, js };
         }
 
+        async function fetchRawBundle() {
+          const base = `https://raw.githubusercontent.com/${REPO}/${BRANCH}`;
+          const [css, js] = await Promise.all([
+            fetchText(`${base}/styles.css`),
+            fetchText(`${base}/script.js`)
+          ]);
+          return { sha: BRANCH, css, js };
+        }
+
         function applyBundle(bundle) {
           const style = document.createElement("style");
           style.textContent = bundle.css;
@@ -165,10 +174,14 @@
             } catch (err) {
               console.warn("Latest commit lookup failed, trying the branch directly.", err);
               try {
-                bundle = await fetchBundle(BRANCH);
-                writeCache(bundle);
+                bundle = await fetchRawBundle();
               } catch (innerErr) {
-                console.warn("Branch bundle failed too, using local files.", innerErr);
+                console.warn("GitHub raw bundle failed, trying the CDN branch copy.", innerErr);
+                try {
+                  bundle = await fetchBundle(BRANCH);
+                } catch (lastErr) {
+                  console.warn("Branch bundle failed too, using local files.", lastErr);
+                }
               }
             }
           }
