@@ -2,7 +2,6 @@ const audio = document.getElementById("bg-audio");
 const lyricsElement = document.getElementById("lyrics");
 const canvas = document.getElementById("wave-canvas");
 const ctx = canvas.getContext("2d");
-const root = document.documentElement;
 
 const avatarImg = document.getElementById("avatar-img");
 const displayNameEl = document.getElementById("display-name");
@@ -16,7 +15,7 @@ const SONG_TITLE = "back to friends";
 const SONG_ARTIST = "sombr";
 const LRCLIB = "https://lrclib.net/api";
 
-const PIXEL_SIZE = 5;
+const PIXEL_SIZE = 6;
 const WAVE_GAIN = 1.25;
 const WAVE_REACH = 0.2;
 const WAVE_COLOR = [236, 236, 236];
@@ -71,6 +70,7 @@ let smoothLoudness = 0;
 let bassAverage = 0;
 let beat = 0;
 let lastBeatAt = 0;
+let lastBeatValue = -1;
 
 let waveWidth = 0;
 let waveHeight = 0;
@@ -181,6 +181,22 @@ function packColor(r, g, b, a) {
   return ((a << 24) | (b << 16) | (g << 8) | r) >>> 0;
 }
 
+function startPlayback() {
+  const attempt = audio.play();
+
+  if (attempt && typeof attempt.catch === "function") {
+    attempt.catch((err) => {
+      console.warn("Playback was blocked, will retry on next interaction.", err);
+      const retry = () => {
+        audio.play().catch(() => {});
+        if (audioCtx && audioCtx.state === "suspended") audioCtx.resume();
+      };
+      document.addEventListener("pointerdown", retry, { once: true });
+      document.addEventListener("keydown", retry, { once: true });
+    });
+  }
+}
+
 function enterSite() {
   const overlay = document.getElementById("entry-overlay");
   overlay.classList.add("fade-out");
@@ -189,11 +205,16 @@ function enterSite() {
     overlay.style.display = "none";
   }, 1200);
 
-  setupAudio();
-
-  audio.currentTime = 0;
   audio.volume = 1;
-  audio.play().catch(() => {});
+  audio.currentTime = 0;
+  startPlayback();
+
+  try {
+    setupAudio();
+  } catch (err) {
+    console.warn("Audio analysis could not start, playing without the wave.", err);
+    analyser = null;
+  }
 
   if (!loopStarted) {
     loopStarted = true;
@@ -209,14 +230,19 @@ function setupAudio() {
 
   audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   const source = audioCtx.createMediaElementSource(audio);
-  analyser = audioCtx.createAnalyser();
-  analyser.fftSize = 2048;
-  analyser.smoothingTimeConstant = 0.2;
-  timeData = new Uint8Array(analyser.fftSize);
-  freqData = new Uint8Array(analyser.frequencyBinCount);
+  const node = audioCtx.createAnalyser();
+  node.fftSize = 2048;
+  node.smoothingTimeConstant = 0.2;
+  timeData = new Uint8Array(node.fftSize);
+  freqData = new Uint8Array(node.frequencyBinCount);
 
-  source.connect(analyser);
-  analyser.connect(audioCtx.destination);
+  source.connect(node);
+  node.connect(audioCtx.destination);
+  analyser = node;
+
+  if (audioCtx.state === "suspended") {
+    audioCtx.resume().catch(() => {});
+  }
 }
 
 function analyseBeat(now) {
@@ -230,10 +256,10 @@ function analyseBeat(now) {
   const bass = bassSum / bassBins / 255;
 
   let total = 0;
-  for (let i = 0; i < freqData.length; i += 1) {
+  for (let i = 0; i < freqData.length; i += 4) {
     total += freqData[i];
   }
-  const loudness = Math.min(total / freqData.length / 110, 1);
+  const loudness = Math.min(total / (freqData.length / 4) / 110, 1);
   smoothLoudness += (loudness - smoothLoudness) * 0.2;
 
   bassAverage += (bass - bassAverage) * 0.04;
@@ -246,9 +272,11 @@ function analyseBeat(now) {
     if (beat < 0.002) beat = 0;
   }
 
-  root.style.setProperty("--loudness", loudness.toFixed(3));
-  root.style.setProperty("--loudness-smooth", smoothLoudness.toFixed(3));
-  root.style.setProperty("--beat", beat.toFixed(3));
+  const rounded = Math.round(beat * 100) / 100;
+  if (rounded !== lastBeatValue) {
+    lastBeatValue = rounded;
+    lyricsElement.style.setProperty("--beat", rounded.toFixed(2));
+  }
 }
 
 function drawPixelWave(now) {
@@ -260,7 +288,7 @@ function drawPixelWave(now) {
   const middle = Math.floor(waveHeight / 2);
   const maxReach = waveHeight * WAVE_REACH;
   const gain = WAVE_GAIN + smoothLoudness * 0.4 + beat * 0.25;
-  const [cr, cg, cb] = WAVE_COLOR;
+  const [cr] = WAVE_COLOR;
   const flick = Math.floor(now / 70);
 
   for (let x = 0; x < waveWidth; x += 1) {
@@ -277,8 +305,6 @@ function drawPixelWave(now) {
     let reach = Math.round((scaled * maxReach) / 2) * 2;
     const direction = reach >= 0 ? 1 : -1;
     reach = Math.abs(reach);
-
-    const mirrored = x % 2 === 0;
 
     for (let step = 0; step <= reach; step += 1) {
       const t = reach === 0 ? 1 : step / reach;
@@ -298,13 +324,6 @@ function drawPixelWave(now) {
       if (y < 0 || y >= waveHeight) continue;
 
       wavePixels[y * waveWidth + x] = packColor(level, level, level, alpha);
-
-      if (mirrored && step > 0 && reach > 6 && rand > 0.93) {
-        const echoY = middle - step * direction;
-        if (echoY >= 0 && echoY < waveHeight && wavePixels[echoY * waveWidth + x] === 0) {
-          wavePixels[echoY * waveWidth + x] = packColor(cr, cg, cb, Math.floor(alpha * 0.45));
-        }
-      }
     }
   }
 
@@ -319,7 +338,7 @@ function buildLine(text, duration, accent) {
 
   const words = text.split(/\s+/).filter(Boolean);
   const totalChars = words.reduce((sum, word) => sum + word.length, 0);
-  const spread = Math.max(0.3, Math.min(duration * 0.55, 1.5));
+  const spread = Math.max(0.9, Math.min(duration * 0.85, 2.8));
   const perChar = spread / Math.max(totalChars, 1);
 
   let charIndex = 0;
@@ -354,7 +373,7 @@ function showLyric(index) {
 
   if (previousLine) {
     previousLine.classList.add("leaving");
-    window.setTimeout(() => previousLine.remove(), 700);
+    window.setTimeout(() => previousLine.remove(), 950);
   }
 
   if (!lyric.text) return;
@@ -390,8 +409,13 @@ function updateLyrics() {
 
 function frameLoop(now) {
   if (analyser) {
-    analyseBeat(now);
-    drawPixelWave(now);
+    try {
+      analyseBeat(now);
+      drawPixelWave(now);
+    } catch (err) {
+      console.warn("Visualizer stopped.", err);
+      analyser = null;
+    }
   }
 
   updateLyrics();
