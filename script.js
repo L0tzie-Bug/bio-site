@@ -16,8 +16,8 @@ const SONG_ARTIST = "sombr";
 const LRCLIB = "https://lrclib.net/api";
 
 const PIXEL_SIZE = 6;
-const WAVE_GAIN = 1.25;
-const WAVE_REACH = 0.2;
+const WAVE_GAIN = 1.7;
+const WAVE_REACH = 0.44;
 const WAVE_COLOR = [236, 236, 236];
 const WINDOW_SAMPLES = 2048;
 const ENVELOPE_RATE = 100;
@@ -74,7 +74,6 @@ let smoothLoudness = 0;
 let bassAverage = 0;
 let beat = 0;
 let lastBeatAt = 0;
-let lastBeatValue = -1;
 
 let waveWidth = 0;
 let waveHeight = 0;
@@ -300,6 +299,17 @@ function enterSite() {
   }
 }
 
+function triggerLineGlitch() {
+  const line = lyricsElement.querySelector(".lyric-line:not(.leaving)");
+  if (!line) return;
+
+  line.classList.remove("glitch-hit");
+  void line.offsetWidth;
+  line.classList.add("glitch-hit");
+
+  window.setTimeout(() => line.classList.remove("glitch-hit"), 260);
+}
+
 function analyseBeat(now, time) {
   const index = Math.min(bassEnvelope.length - 1, Math.max(0, Math.floor(time * ENVELOPE_RATE)));
   const bass = bassEnvelope[index];
@@ -311,15 +321,10 @@ function analyseBeat(now, time) {
   if (bass > 0.3 && bass > bassAverage * 1.16 + 0.02 && now - lastBeatAt > 170) {
     beat = 1;
     lastBeatAt = now;
+    triggerLineGlitch();
   } else {
     beat *= 0.87;
     if (beat < 0.002) beat = 0;
-  }
-
-  const rounded = Math.round(beat * 100) / 100;
-  if (rounded !== lastBeatValue) {
-    lastBeatValue = rounded;
-    lyricsElement.style.setProperty("--beat", rounded.toFixed(2));
   }
 }
 
@@ -330,7 +335,7 @@ function drawPixelWave(now, time) {
   const windowStart = Math.min(maxStart, Math.max(0, Math.floor(time * sampleRate)));
   const middle = Math.floor(waveHeight / 2);
   const maxReach = waveHeight * WAVE_REACH;
-  const gain = WAVE_GAIN + smoothLoudness * 0.4 + beat * 0.25;
+  const gain = WAVE_GAIN + smoothLoudness * 0.5 + beat * 0.3;
   const [cr] = WAVE_COLOR;
   const flick = Math.floor(now / 70);
 
@@ -344,7 +349,7 @@ function drawPixelWave(now, time) {
       if (Math.abs(value) > Math.abs(peak)) peak = value;
     }
 
-    const scaled = Math.max(-1, Math.min(1, peak * gain));
+    const scaled = Math.tanh(peak * gain);
     let reach = Math.round((scaled * maxReach) / 2) * 2;
     const direction = reach >= 0 ? 1 : -1;
     reach = Math.abs(reach);
