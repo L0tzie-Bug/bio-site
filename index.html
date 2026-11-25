@@ -11,6 +11,16 @@
   </head>
   <body>
     <div id="vanta-bg"></div>
+    <div id="glitch-layer" aria-hidden="true"></div>
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+      <defs>
+        <filter id="scratch" x="-10%" y="-10%" width="120%" height="120%">
+          <feTurbulence id="scratch-noise" type="fractalNoise" baseFrequency="0.004 0.9" numOctaves="1" seed="3" result="n"/>
+          <feColorMatrix in="n" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  9 0 0 0 -6.1" result="m"/>
+          <feComposite in="SourceGraphic" in2="m" operator="out"/>
+        </filter>
+      </defs>
+    </svg>
 
     <main id="app">
       <section class="panel profile" id="profile-card">
@@ -19,9 +29,15 @@
         <span class="username" id="username">@l0tzie</span>
         <p class="description" id="profile-bio">Hellur</p>
         <nav class="socials" id="socials">
-          <a href="https://spotify.com" target="_blank" rel="noopener noreferrer" class="social-btn">Spotify</a>
-          <a href="https://discord.com" target="_blank" rel="noopener noreferrer" class="social-btn">Discord</a>
-          <a href="https://roblox.com" target="_blank" rel="noopener noreferrer" class="social-btn">Roblox</a>
+          <a href="https://spotify.com" target="_blank" rel="noopener noreferrer" class="social-btn" aria-label="Spotify" title="Spotify">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.59 14.42a.62.62 0 0 1-.86.21c-2.35-1.44-5.31-1.76-8.8-.97a.62.62 0 1 1-.28-1.22c3.82-.87 7.1-.5 9.73 1.12.3.18.39.57.21.86zm1.22-2.72a.78.78 0 0 1-1.07.26c-2.69-1.65-6.79-2.13-9.97-1.17a.78.78 0 1 1-.45-1.49c3.63-1.1 8.15-.57 11.23 1.33.37.22.48.7.26 1.07zm.1-2.83C14.7 8.96 9.4 8.78 6.33 9.71a.93.93 0 1 1-.54-1.78c3.52-1.07 9.36-.86 13.05 1.33a.93.93 0 0 1-.93 1.61z"/></svg>
+          </a>
+          <a href="https://discord.com" target="_blank" rel="noopener noreferrer" class="social-btn" aria-label="Discord" title="Discord">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.27 5.33A16.6 16.6 0 0 0 15.1 4l-.2.4a15.4 15.4 0 0 1 3.7 1.2 15.7 15.7 0 0 0-13.2 0A15.4 15.4 0 0 1 9.1 4.4L8.9 4a16.6 16.6 0 0 0-4.17 1.33C2.1 9.27 1.4 13.1 1.75 16.88a16.7 16.7 0 0 0 5.1 2.57l1.1-1.78a10.8 10.8 0 0 1-1.73-.83l.43-.33a11.9 11.9 0 0 0 10.7 0l.43.33c-.55.33-1.13.6-1.73.83l1.1 1.78a16.7 16.7 0 0 0 5.1-2.57c.42-4.38-.72-8.17-3-11.55zM8.68 14.6c-1 0-1.82-.92-1.82-2.05s.8-2.05 1.82-2.05 1.84.92 1.82 2.05c0 1.13-.8 2.05-1.82 2.05zm6.64 0c-1 0-1.82-.92-1.82-2.05s.8-2.05 1.82-2.05 1.84.92 1.82 2.05c0 1.13-.8 2.05-1.82 2.05z"/></svg>
+          </a>
+          <a href="https://roblox.com" target="_blank" rel="noopener noreferrer" class="social-btn" aria-label="Roblox" title="Roblox">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.2 1.5 1.5 18.8l17.3 3.7L22.5 5.2 5.2 1.5zm8.7 11.6-4.1-.9.9-4.1 4.1.9-.9 4.1z" fill-rule="evenodd"/></svg>
+          </a>
         </nav>
       </section>
 
