@@ -12,25 +12,6 @@ const FALLBACK_AVATAR = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcS
 const FALLBACK_NAME = "Lotzi";
 const FALLBACK_USERNAME = "@l0tzie";
 
-function initVanta() {
-  if (typeof VANTA === "undefined" || !VANTA.FOG) return;
-  VANTA.FOG({
-    el: "#vanta-bg",
-    mouseControls: false,
-    touchControls: false,
-    gyroControls: false,
-    minHeight: 200,
-    minWidth: 200,
-    highlightColor: 0x2e2e2e,
-    midtoneColor: 0x141414,
-    lowlightColor: 0x000000,
-    baseColor: 0x000000,
-    blurFactor: 0.7,
-    speed: 0.25,
-    zoom: 3
-  });
-}
-
 function discordAvatarUrl(id, avatarHash) {
   if (!avatarHash) {
     const defaultIndex = Number((BigInt(id) >> 22n) % 6n);
@@ -117,7 +98,6 @@ audio.addEventListener("error", () => {
   console.warn("Audio failed to load.", audio.error);
 });
 
-initVanta();
 loadDiscordProfile();
 updateProgress();
 
@@ -199,3 +179,93 @@ function glitchLoop() {
 if (!reducedMotion && glitchLayer && typeof glitchLayer.animate === "function") {
   window.setTimeout(glitchLoop, 600);
 }
+
+const FOG_BG = { low: 0x05000d, mid: 0x3a0b78, high: 0xb36bff, zoom: 0.75, scale: 0.4, speed: 1, vignette: 1.1 };
+const FOG_PANEL = { low: 0x0a0016, mid: 0x4a1396, high: 0xc58bff, zoom: 1.1, scale: 0.22, speed: 1.9, vignette: 0.5 };
+
+const fogLayers = [];
+const bgCanvas = document.createElement("canvas");
+bgCanvas.id = "fog-canvas";
+document.getElementById("vanta-bg").appendChild(bgCanvas);
+const bgFog = createFog(bgCanvas, FOG_BG);
+if (bgFog) fogLayers.push({ fog: bgFog, canvas: bgCanvas, sway: 1 });
+else document.body.classList.add("no-webgl");
+
+const panels = Array.from(document.querySelectorAll(".panel")).map((el) => {
+  const canvas = document.createElement("canvas");
+  canvas.className = "panel-fog";
+  el.prepend(canvas);
+  const fx = document.createElement("div");
+  fx.className = "panel-fx";
+  el.appendChild(fx);
+  const fog = createFog(canvas, FOG_PANEL);
+  if (fog) fogLayers.push({ fog, canvas, sway: 0.6 });
+  return { el, rx: 0, ry: 0, tx: 0, ty: 0, mx: 50, my: 50 };
+});
+
+const pointer = { x: window.innerWidth / 2, y: window.innerHeight / 2, active: false };
+const drift = { x: 0, y: 0 };
+
+window.addEventListener("pointermove", (e) => {
+  pointer.x = e.clientX;
+  pointer.y = e.clientY;
+  pointer.active = true;
+});
+
+document.addEventListener("pointerleave", () => {
+  pointer.active = false;
+});
+
+window.addEventListener("resize", () => fogLayers.forEach((l) => l.fog.resize()));
+
+function clamp(v, a, b) {
+  return Math.max(a, Math.min(b, v));
+}
+
+let lastFrame = performance.now();
+let fogTime = rand(0, 50);
+
+function frame(now) {
+  const dt = Math.min(0.1, (now - lastFrame) / 1000);
+  lastFrame = now;
+  if (!document.hidden) {
+    if (!reducedMotion) fogTime += dt;
+
+    const nx = pointer.active ? (pointer.x / window.innerWidth) * 2 - 1 : 0;
+    const ny = pointer.active ? (pointer.y / window.innerHeight) * 2 - 1 : 0;
+    drift.x += (nx - drift.x) * 0.04;
+    drift.y += (ny - drift.y) * 0.04;
+
+    fogLayers.forEach((l) => l.fog.render(fogTime, drift.x * l.sway, -drift.y * l.sway));
+
+    panels.forEach((p) => {
+      const rect = p.el.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2 - p.tx;
+      const cy = rect.top + rect.height / 2 - p.ty;
+      const dx = (pointer.x - cx) / (rect.width / 2);
+      const dy = (pointer.y - cy) / (rect.height / 2);
+      const outside = Math.hypot(Math.max(Math.abs(dx) - 1, 0), Math.max(Math.abs(dy) - 1, 0));
+      const inside = outside === 0;
+      const strength = pointer.active ? (inside ? 1 : Math.max(0.18, 0.7 - outside * 0.25)) : 0;
+      const cdx = clamp(dx, -1.6, 1.6);
+      const cdy = clamp(dy, -1.6, 1.6);
+      const targetRy = cdx * 9 * strength;
+      const targetRx = -cdy * 9 * strength;
+      const targetTx = cdx * 12 * strength;
+      const targetTy = cdy * 8 * strength;
+      p.ry += (targetRy - p.ry) * 0.09;
+      p.rx += (targetRx - p.rx) * 0.09;
+      p.tx += (targetTx - p.tx) * 0.09;
+      p.ty += (targetTy - p.ty) * 0.09;
+      p.mx += ((clamp(dx, -1, 1) * 50 + 50) - p.mx) * 0.15;
+      p.my += ((clamp(dy, -1, 1) * 50 + 50) - p.my) * 0.15;
+      p.el.style.transform = `translate3d(${p.tx.toFixed(2)}px, ${p.ty.toFixed(2)}px, 0) rotateX(${p.rx.toFixed(2)}deg) rotateY(${p.ry.toFixed(2)}deg)`;
+      p.el.style.setProperty("--mx", `${p.mx.toFixed(1)}%`);
+      p.el.style.setProperty("--my", `${p.my.toFixed(1)}%`);
+      p.el.style.setProperty("--glow", inside ? "1" : "0");
+    });
+  }
+  requestAnimationFrame(frame);
+}
+
+requestAnimationFrame(frame);
