@@ -6,51 +6,48 @@
     <title>Lotzi</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=IM+Fell+English:ital@0;1&family=Special+Elite&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
   </head>
   <body>
-    <div id="entry-overlay" role="button" tabindex="0" aria-label="Click to enter">
-      <div class="entry-prompt">click to enter<span class="cursor">_</span></div>
-    </div>
+    <div id="vanta-bg"></div>
 
-    <div id="stage">
-      <div id="vintage-bg"></div>
-      <canvas id="wave-canvas"></canvas>
-      <div id="grain-overlay"></div>
-      <div id="dust-overlay"></div>
-      <div id="scanlines"></div>
-      <div id="vignette-overlay"></div>
+    <main id="app">
+      <section class="panel profile" id="profile-card">
+        <img class="avatar" id="avatar-img" src="" alt="Profile picture">
+        <h1 class="display-name" id="display-name">Lotzi</h1>
+        <span class="username" id="username">@l0tzie</span>
+        <p class="description" id="profile-bio">Hellur</p>
+        <nav class="socials" id="socials">
+          <a href="https://spotify.com" target="_blank" rel="noopener noreferrer" class="social-btn">Spotify</a>
+          <a href="https://discord.com" target="_blank" rel="noopener noreferrer" class="social-btn">Discord</a>
+          <a href="https://roblox.com" target="_blank" rel="noopener noreferrer" class="social-btn">Roblox</a>
+        </nav>
+      </section>
 
-      <div class="profile-card" id="profile-card">
-        <div class="card-content-inner">
-          <div class="avatar-container">
-            <img class="avatar" id="avatar-img" src="" alt="Discord profile picture">
+      <section class="panel player" id="player">
+        <button class="play-btn" id="play-btn" type="button" aria-label="Play">
+          <svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/></svg>
+          <svg class="icon-pause" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4.5" height="14" rx="1.4"/><rect x="13.5" y="5" width="4.5" height="14" rx="1.4"/></svg>
+        </button>
+        <div class="player-main">
+          <div class="track">
+            <span class="track-title" id="track-title">back to friends</span>
+            <span class="track-artist" id="track-artist">sombr</span>
           </div>
-          <div class="profile-details">
-            <span class="display-name" id="display-name">Lotzi</span>
-            <span class="username" id="username">@l0tzie</span>
-          </div>
-          <p class="profile-bio" id="profile-bio">Hellur</p>
+          <input class="seek" id="seek" type="range" min="0" max="1000" value="0" step="1" aria-label="Seek">
+          <div class="times"><span id="time-now">0:00</span><span id="time-total">0:00</span></div>
         </div>
-      </div>
+      </section>
+    </main>
 
-      <div class="social-container" id="socials">
-        <a href="https://spotify.com" target="_blank" rel="noopener noreferrer" class="social-btn spotify">Spotify</a>
-        <a href="https://discord.com" target="_blank" rel="noopener noreferrer" class="social-btn discord">Discord</a>
-        <a href="https://roblox.com" target="_blank" rel="noopener noreferrer" class="social-btn roblox">Roblox</a>
-      </div>
-
-      <div id="lyrics" aria-live="polite" aria-atomic="true"></div>
-    </div>
-
-    <div id="crt-flash"></div>
-
-    <audio loop preload="auto" id="bg-audio" src="playlist/back-to-friends.mp3"></audio>
+    <audio loop preload="metadata" id="bg-audio" src="playlist/back-to-friends.mp3"></audio>
 
     <script>
       const DISCORD_USER_ID = "1449042436176220170";
     </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vanta@0.5.24/dist/vanta.fog.min.js"></script>
     <script src="script.js"></script>
   </body>
 </html>
