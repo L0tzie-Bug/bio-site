@@ -7,7 +7,13 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css">
+    <script>
+      const BUST = Date.now();
+      const css = document.createElement("link");
+      css.rel = "stylesheet";
+      css.href = "styles.css?v=" + BUST;
+      document.head.appendChild(css);
+    </script>
   </head>
   <body>
     <div id="vanta-bg"></div>
@@ -62,8 +68,13 @@
     <script>
       const DISCORD_USER_ID = "1449042436176220170";
     </script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/vanta@0.5.24/dist/vanta.fog.min.js"></script>
-    <script src="script.js"></script>
+    <script>
+      ["fog.js", "script.js"].forEach((src) => {
+        const s = document.createElement("script");
+        s.src = src + "?v=" + BUST;
+        s.async = false;
+        document.body.appendChild(s);
+      });
+    </script>
   </body>
 </html>
