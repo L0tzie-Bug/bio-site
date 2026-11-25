@@ -105,7 +105,7 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 
 const GLITCH_SHAPES = [
   { viewBox: "0 0 24 24", ratio: 1, d: "M14 0 L3 14 L10 14 L7 24 L20 9 L13 9 Z" },
-  { viewBox: "0 0 24 24", ratio: 1, d: "M12 3 L14 3 L14 17 L11 22 L5 22 L3 18 L8 15 L12 16 Z M14 3 L21 7 L21 12 L14 9 Z" },
+  { viewBox: "0 0 24 24", ratio: 1, d: "M11 2 L21 4 L21 10 L14 8.5 L14 18 L11.5 21.5 L6 22.5 L2 19.5 L3.5 16 L8 14.5 L11 15.5 Z" },
   {
     viewBox: "0 0 24 64",
     ratio: 64 / 24,
@@ -132,7 +132,7 @@ function spawnGlitch() {
   path.setAttribute("fill-rule", "evenodd");
   svg.appendChild(path);
 
-  const width = rand(70, 220);
+  const width = rand(110, 320);
   const height = width * shape.ratio;
   const rotation = rand(-35, 35);
 
@@ -140,29 +140,38 @@ function spawnGlitch() {
   svg.style.height = `${height}px`;
   svg.style.left = `${rand(-5, 95)}vw`;
   svg.style.top = `${rand(-5, 95)}vh`;
-  svg.style.setProperty("--blur", `${rand(0.8, 3).toFixed(1)}px`);
+  svg.style.setProperty("--blur", `${rand(3, 7).toFixed(1)}px`);
 
   if (scratchNoise) scratchNoise.setAttribute("seed", String(Math.floor(rand(1, 999))));
 
   glitchLayer.appendChild(svg);
 
-  const peak = rand(0.1, 0.2);
+  const peak = rand(0.07, 0.16);
   const shift = rand(8, 26) * (Math.random() < 0.5 ? -1 : 1);
   const base = `rotate(${rotation}deg)`;
   const duration = rand(260, 620);
 
+  const slice = () => {
+    const top = rand(0, 70);
+    const bottom = rand(0, 100 - top - 8);
+    return `inset(${top.toFixed(0)}% 0 ${bottom.toFixed(0)}% 0)`;
+  };
+  const full = "inset(0 0 0 0)";
+
   const animation = svg.animate(
     [
-      { opacity: 0, transform: base, offset: 0 },
-      { opacity: peak, transform: `${base} translateX(${shift}px)`, offset: 0.12 },
-      { opacity: 0, transform: base, offset: 0.24 },
-      { opacity: peak * 0.7, transform: `${base} translateX(${-shift * 0.6}px)`, offset: 0.4 },
-      { opacity: peak, transform: `${base} translateX(${shift * 0.3}px)`, offset: 0.55 },
-      { opacity: 0, transform: base, offset: 0.7 },
-      { opacity: peak * 0.5, transform: base, offset: 0.82 },
-      { opacity: 0, transform: base, offset: 1 }
+      { opacity: 0, transform: base, clipPath: full, offset: 0 },
+      { opacity: peak, transform: `${base} translateX(${shift}px)`, clipPath: slice(), offset: 0.1 },
+      { opacity: 0, transform: base, clipPath: full, offset: 0.2 },
+      { opacity: peak * 0.8, transform: `${base} translateX(${-shift * 0.6}px)`, clipPath: full, offset: 0.32 },
+      { opacity: peak, transform: `${base} translateX(${shift * 0.4}px)`, clipPath: slice(), offset: 0.46 },
+      { opacity: 0, transform: base, clipPath: full, offset: 0.58 },
+      { opacity: peak * 0.6, transform: `${base} translateX(${-shift * 0.3}px)`, clipPath: slice(), offset: 0.7 },
+      { opacity: peak * 0.9, transform: base, clipPath: full, offset: 0.8 },
+      { opacity: 0, transform: base, clipPath: full, offset: 0.9 },
+      { opacity: 0, transform: base, clipPath: full, offset: 1 }
     ],
-    { duration, easing: "steps(1, end)", fill: "forwards" }
+    { duration: duration * 1.3, easing: "steps(1, end)", fill: "forwards" }
   );
 
   animation.onfinish = () => svg.remove();
@@ -171,17 +180,17 @@ function spawnGlitch() {
 function glitchLoop() {
   if (!document.hidden) {
     spawnGlitch();
-    if (Math.random() < 0.25) window.setTimeout(spawnGlitch, rand(40, 160));
+    if (Math.random() < 0.35) window.setTimeout(spawnGlitch, rand(40, 160));
   }
-  window.setTimeout(glitchLoop, rand(350, 1500));
+  window.setTimeout(glitchLoop, rand(250, 1000));
 }
 
 if (!reducedMotion && glitchLayer && typeof glitchLayer.animate === "function") {
   window.setTimeout(glitchLoop, 600);
 }
 
-const FOG_BG = { low: 0x05000d, mid: 0x3a0b78, high: 0xb36bff, zoom: 0.75, scale: 0.4, speed: 1, vignette: 1.1 };
-const FOG_PANEL = { low: 0x0a0016, mid: 0x4a1396, high: 0xc58bff, zoom: 1.1, scale: 0.22, speed: 1.9, vignette: 0.5 };
+const FOG_BG = { low: 0x030007, mid: 0x1a0540, high: 0x4f1a96, zoom: 0.75, scale: 0.4, speed: 1, vignette: 1.1 };
+const FOG_PANEL = { low: 0x050010, mid: 0x260a58, high: 0x5e24b0, zoom: 1.1, scale: 0.22, speed: 1.9, vignette: 0.5 };
 
 const fogLayers = [];
 const bgCanvas = document.createElement("canvas");
@@ -341,9 +350,9 @@ function drawBolts(now) {
       const flicker = Math.random() < 0.18 ? 0.35 : 1;
       const alpha = (1 - age) * flicker;
       boltCtx.globalAlpha = alpha;
-      boltCtx.shadowColor = "#a855f7";
+      boltCtx.shadowColor = "#7c3aed";
       boltCtx.shadowBlur = 16;
-      boltCtx.strokeStyle = "#a855f7";
+      boltCtx.strokeStyle = "#7c3aed";
       boltCtx.beginPath();
       b.segs.forEach((s) => {
         boltCtx.lineWidth = s[4] * 2.2;
@@ -352,7 +361,7 @@ function drawBolts(now) {
       });
       boltCtx.stroke();
       boltCtx.shadowBlur = 0;
-      boltCtx.strokeStyle = "#f3e8ff";
+      boltCtx.strokeStyle = "#c9b3f0";
       b.segs.forEach((s) => {
         boltCtx.beginPath();
         boltCtx.lineWidth = Math.max(0.6, s[4] * 0.6);
