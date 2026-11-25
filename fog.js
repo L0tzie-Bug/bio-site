@@ -1,7 +1,11 @@
 const FOG_VERT = "attribute vec2 p;void main(){gl_Position=vec4(p,0.0,1.0);}";
 
 const FOG_FRAG = `
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
 precision mediump float;
+#endif
 uniform vec2 r;
 uniform float t;
 uniform float z;
@@ -12,9 +16,9 @@ uniform vec3 cHigh;
 uniform float vig;
 
 float hash(vec2 p){
-  p = fract(p * vec2(123.34, 456.21));
-  p += dot(p, p + 45.32);
-  return fract(p.x * p.y);
+  vec3 q = fract(vec3(p.xyx) * 0.1031);
+  q += dot(q, q.yzx + 33.33);
+  return fract((q.x + q.y) * q.z);
 }
 
 float noise(vec2 p){
@@ -42,9 +46,9 @@ void main(){
   vec2 q = vec2(fbm(p + vec2(0.0, t * 0.11)), fbm(p + vec2(5.2, 1.3) - vec2(t * 0.09, 0.0)));
   vec2 s = vec2(fbm(p + 2.2 * q + vec2(1.7, 9.2) + t * 0.06), fbm(p + 2.2 * q + vec2(8.3, 2.8) - t * 0.05));
   float f = fbm(p + 2.4 * s);
-  float d = smoothstep(0.18, 0.78, f);
+  float d = smoothstep(0.25, 0.7, f);
   vec3 col = mix(cLow, cMid, d);
-  col = mix(col, cHigh, smoothstep(0.55, 1.0, f * f * 1.7 + s.x * 0.25));
+  col = mix(col, cHigh, smoothstep(0.5, 0.95, f + s.x * 0.3));
   vec2 c = gl_FragCoord.xy / r - 0.5;
   col *= 1.0 - dot(c, c) * vig;
   gl_FragColor = vec4(col, 1.0);
@@ -116,4 +120,4 @@ function createFog(canvas, opts) {
 
   resize();
   return { resize, render };
-                }
+}
