@@ -216,7 +216,11 @@ document.addEventListener("pointerleave", () => {
   pointer.active = false;
 });
 
-window.addEventListener("resize", () => fogLayers.forEach((l) => l.fog.resize()));
+const resizeFog = () => fogLayers.forEach((l) => l.fog.resize());
+window.addEventListener("resize", resizeFog);
+window.addEventListener("load", resizeFog);
+window.setTimeout(resizeFog, 400);
+window.setTimeout(resizeFog, 1500);
 
 function clamp(v, a, b) {
   return Math.max(a, Math.min(b, v));
@@ -269,3 +273,110 @@ function frame(now) {
 }
 
 requestAnimationFrame(frame);
+
+const boltCanvas = document.getElementById("lightning-layer");
+const boltCtx = boltCanvas ? boltCanvas.getContext("2d") : null;
+const bolts = [];
+let boltDpr = 1;
+
+function resizeBolts() {
+  if (!boltCanvas) return;
+  boltDpr = Math.min(window.devicePixelRatio || 1, 2);
+  boltCanvas.width = Math.round(window.innerWidth * boltDpr);
+  boltCanvas.height = Math.round(window.innerHeight * boltDpr);
+}
+
+function buildBolt(x, y, angle, length, width, depth, out) {
+  let cx = x;
+  let cy = y;
+  let a = angle;
+  const step = rand(9, 17);
+  const count = Math.max(2, Math.floor(length / step));
+  let w = width;
+  for (let i = 0; i < count; i++) {
+    a += rand(-0.55, 0.55);
+    const nx = cx + Math.cos(a) * step;
+    const ny = cy + Math.sin(a) * step;
+    out.push([cx, cy, nx, ny, w]);
+    if (depth < 3 && Math.random() < 0.13) {
+      buildBolt(nx, ny, a + rand(0.5, 1.1) * (Math.random() < 0.5 ? -1 : 1), length * rand(0.25, 0.55), w * 0.65, depth + 1, out);
+    }
+    cx = nx;
+    cy = ny;
+    w *= 0.985;
+  }
+}
+
+function spawnBolt() {
+  if (!boltCtx || !panels.length) return;
+  const panel = panels[Math.random() < 0.7 ? 0 : Math.floor(Math.random() * panels.length)];
+  const rect = panel.el.getBoundingClientRect();
+  const side = Math.floor(rand(0, 4));
+  let x;
+  let y;
+  let angle;
+  if (side === 0) { x = rect.right; y = rand(rect.top, rect.bottom); angle = 0; }
+  else if (side === 1) { x = rand(rect.left, rect.right); y = rect.bottom; angle = Math.PI / 2; }
+  else if (side === 2) { x = rect.left; y = rand(rect.top, rect.bottom); angle = Math.PI; }
+  else { x = rand(rect.left, rect.right); y = rect.top; angle = -Math.PI / 2; }
+  angle += rand(-0.5, 0.5);
+  const segs = [];
+  buildBolt(x, y, angle, rand(120, 340), rand(1.6, 2.8), 0, segs);
+  bolts.push({ segs, born: performance.now(), life: rand(260, 520) });
+}
+
+function drawBolts(now) {
+  if (boltCtx) {
+    boltCtx.setTransform(boltDpr, 0, 0, boltDpr, 0, 0);
+    boltCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+    boltCtx.lineCap = "round";
+    boltCtx.lineJoin = "round";
+    for (let i = bolts.length - 1; i >= 0; i--) {
+      const b = bolts[i];
+      const age = (now - b.born) / b.life;
+      if (age >= 1) {
+        bolts.splice(i, 1);
+        continue;
+      }
+      const flicker = Math.random() < 0.18 ? 0.35 : 1;
+      const alpha = (1 - age) * flicker;
+      boltCtx.globalAlpha = alpha;
+      boltCtx.shadowColor = "#a855f7";
+      boltCtx.shadowBlur = 16;
+      boltCtx.strokeStyle = "#a855f7";
+      boltCtx.beginPath();
+      b.segs.forEach((s) => {
+        boltCtx.lineWidth = s[4] * 2.2;
+        boltCtx.moveTo(s[0], s[1]);
+        boltCtx.lineTo(s[2], s[3]);
+      });
+      boltCtx.stroke();
+      boltCtx.shadowBlur = 0;
+      boltCtx.strokeStyle = "#f3e8ff";
+      b.segs.forEach((s) => {
+        boltCtx.beginPath();
+        boltCtx.lineWidth = Math.max(0.6, s[4] * 0.6);
+        boltCtx.moveTo(s[0], s[1]);
+        boltCtx.lineTo(s[2], s[3]);
+        boltCtx.stroke();
+      });
+    }
+    boltCtx.globalAlpha = 1;
+  }
+  requestAnimationFrame(drawBolts);
+}
+
+function boltLoop() {
+  if (!document.hidden) {
+    spawnBolt();
+    if (Math.random() < 0.3) window.setTimeout(spawnBolt, rand(50, 200));
+  }
+  window.setTimeout(boltLoop, rand(700, 2600));
+}
+
+if (boltCtx && !reducedMotion) {
+  resizeBolts();
+  window.addEventListener("resize", resizeBolts);
+  requestAnimationFrame(drawBolts);
+  window.setTimeout(boltLoop, 900);
+}
